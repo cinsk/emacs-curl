@@ -404,20 +404,27 @@ If there's no matching coding-system, this function returns DEFUALT."
         (ct (if content-type 
                 (format "-H 'Content-Type: %s'" content-type)
               ""))
-        (hds ""))
+        (hds "")
+        curlcode)
     (dolist (hd custom-headers)
       (setq hds (concat hds (format " -H '%s'" hd))))
 
-    (shell-command-on-region
-     (point-min) (point-max)
-     (format "%s %s %s %s %s %s -i -X %s --data-binary @- '%s' 2>/dev/null"
-             curl/program curl/common-options
-             ct cl
-             (if options options "")
-             hds
-             (upcase (symbol-name http-method))
-             url)
-     (current-buffer) 'replace)
+    (setq curlcode
+          (shell-command-on-region
+           (point-min) (point-max)
+           (format "%s %s %s %s %s %s -i -X %s --data-binary @- '%s' 2>/dev/null"
+                   curl/program curl/common-options
+                   ct cl
+                   (if options options "")
+                   hds
+                   (upcase (symbol-name http-method))
+                   url)
+           (current-buffer) 'replace))
+
+    (unless (eq curlcode 0)
+      (let ((msg (gethash curlcode curl/return-status-messages)))
+        (error (or (format "CURL: %s" msg)
+                   (format "CURL: returns %d" curlcode)))))
 
     (let* ((headers (curl/http-headers (point-min) (point-max)))
            (body (curl/http-body (point-min) (point-max) nil 'utf-8)))
@@ -442,7 +449,8 @@ If there's no matching coding-system, this function returns DEFUALT."
            (let ((ecode (string-to-number (match-string 1 event))))
              ;; nonzero exit status, do something
              (let ((msg (gethash ecode curl/return-status-messages)))
-               (message (or msg (format "curl returns %d" ecode))))))
+               (message (or (format "CURL: %s" msg)
+                            (format "CURL: returns %d" ecode))))))
           ((string-match "\\`hangup\\'" event)
            ;; user explicitly killed the process
            )
@@ -541,7 +549,8 @@ form of (\"Status\" . Status-Code)."
       ;; TODO: check the return status of curl(1)
       (unless (eq ecode 0)
         (let ((msg (gethash ecode curl/return-status-messages)))
-          (error (or msg (format "curl returns %d" ecode)))))
+          (error (or (format "CURL: %s" msg)
+                     (format "CURL: returns %d" ecode)))))
 
       (let* ((headers (curl/http-headers (point-min) (point-max))))
         (if (not target-buffer)
